@@ -1,0 +1,1814 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>陕西历史博物馆余票监测系统</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#C1272D', // 陕西历史博物馆主色调-红色
+                        success: '#36D399',    // 绿色-用于余票
+                        warning: '#FBBD23',
+                        danger: '#F87272',     // 红色-用于已约票数
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .text-shadow {
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .card-hover {
+                @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
+            }
+            .pulse-animation {
+                animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+            .next-release-animation {
+                animation: fadeInOut 2s ease-in-out infinite;
+            }
+            .ticket-flash {
+                animation: ticketFlash 0.8s ease-in-out;
+            }
+            .modal-backdrop {
+                backdrop-filter: blur(4px);
+            }
+            .warning-flash {
+                animation: warningFlash 0.5s ease-in-out infinite alternate;
+            }
+            .btn-hover {
+                @apply transition-all duration-300 hover:shadow-md transform hover:-translate-y-0.5;
+            }
+            .stat-card {
+                @apply transition-all duration-300 hover:scale-105;
+            }
+            @keyframes pulse {
+                0%, 100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.7;
+                }
+            }
+            @keyframes fadeInOut {
+                0%, 100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.6;
+                }
+            }
+            @keyframes ticketFlash {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+            }
+            @keyframes warningFlash {
+                from { background-color: #FBBD23; color: white; }
+                to { background-color: #F87272; color: white; }
+            }
+            @keyframes modalFadeIn {
+                from { opacity: 0; transform: translateY(-20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes slideIn {
+                from { transform: translateX(-20px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            .slide-in {
+                animation: slideIn 0.5s ease-out forwards;
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-slate-50 text-dark min-h-screen flex flex-col">
+    <!-- 整点提示弹窗 (默认隐藏) -->
+    <div id="hourly-modal" class="fixed inset-0 bg-black/50 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 max-w-md w-full mx-4 animate-[modalFadeIn_0.3s_ease-out]" style="animation: modalFadeIn 0.3s ease-out;">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-secondary/10 mb-4">
+                    <i class="fa fa-bell text-secondary text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2">整点提醒</h3>
+                <p class="text-slate-600 mb-6" id="modal-message">现在是整点时间，距离下次放票还有一段时间</p>
+                <button id="close-modal" class="bg-secondary text-white px-4 py-2 rounded-lg hover:bg-secondary/90 transition-colors w-full">
+                    知道了
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 测试放票提示弹窗 (默认隐藏) -->
+    <div id="test-modal" class="fixed inset-0 bg-black/50 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 max-w-md w-full mx-4 animate-[modalFadeIn_0.3s_ease-out]" style="animation: modalFadeIn 0.3s ease-out;">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warning/10 mb-4">
+                    <i class="fa fa-exclamation-triangle text-warning text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2 text-warning">测试放票提醒</h3>
+                <p class="text-slate-600 mb-6 text-lg">10秒后即将进行放票，请注意抢票！！！</p>
+                <button id="close-test-modal" class="bg-warning text-white px-4 py-2 rounded-lg hover:bg-warning/90 transition-colors w-full warning-flash">
+                    准备就绪
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 清空日志确认弹窗 (默认隐藏) -->
+    <div id="clear-log-modal" class="fixed inset-0 bg-black/50 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 max-w-md w-full mx-4 animate-[modalFadeIn_0.3s_ease-out]" style="animation: modalFadeIn 0.3s ease-out;">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warning/10 mb-4">
+                    <i class="fa fa-exclamation-circle text-warning text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2">确认清除日志</h3>
+                <p class="text-slate-600 mb-6">即将清除所有日志信息，是否确认清除？</p>
+                <div class="flex space-x-4">
+                    <button id="confirm-clear-log" class="bg-danger text-white px-4 py-2 rounded-lg hover:bg-danger/90 transition-colors flex-1">
+                        确认
+                    </button>
+                    <button id="cancel-clear-log" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-300 transition-colors flex-1">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 关闭系统确认弹窗 (默认隐藏) -->
+    <div id="close-system-modal" class="fixed inset-0 bg-black/50 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 max-w-md w-full mx-4 animate-[modalFadeIn_0.3s_ease-out]" style="animation: modalFadeIn 0.3s ease-out;">
+            <div class="text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warning/10 mb-4">
+                    <i class="fa fa-power-off text-warning text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold mb-2">确认关闭系统</h3>
+                <p class="text-slate-600 mb-6">监测系统即将关闭，是否确认关闭系统？</p>
+                <div class="flex space-x-4">
+                    <button id="confirm-close-system" class="bg-danger text-white px-4 py-2 rounded-lg hover:bg-danger/90 transition-colors flex-1">
+                        确认关闭
+                    </button>
+                    <button id="cancel-close-system" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-300 transition-colors flex-1">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 顶部导航栏 -->
+    <header class="bg-white shadow-md sticky top-0 z-40 transition-all duration-300">
+        <div class="container mx-auto px-4 py-3 flex flex-wrap justify-between items-center">
+            <div class="flex items-center space-x-3 mb-2 sm:mb-0">
+                <i class="fa fa-university text-secondary text-2xl"></i>
+                <h1 class="text-[clamp(1.25rem,3vw,1.75rem)] font-bold text-secondary">陕西历史博物馆余票监测系统</h1>
+            </div>
+            
+            <!-- 系统控制按钮 - 移至右上角 -->
+            <div class="flex items-center space-x-6">
+                <div class="flex space-x-2">
+                    <button id="start-system" class="bg-success text-white px-3 py-1.5 rounded-lg hover:bg-success/90 transition-all text-sm flex items-center btn-hover">
+                        <i class="fa fa-play mr-1"></i> 启动系统
+                    </button>
+                    <button id="test-btn" class="bg-warning text-white px-3 py-1.5 rounded-lg hover:bg-warning/90 transition-all text-sm flex items-center btn-hover">
+                        <i class="fa fa-play-circle mr-1"></i> 测试
+                    </button>
+                    <button id="stop-system" class="bg-danger text-white px-3 py-1.5 rounded-lg hover:bg-danger/90 transition-all text-sm flex items-center hidden btn-hover">
+                        <i class="fa fa-stop mr-1"></i> 关闭系统
+                    </button>
+                </div>
+                
+                <div class="hidden md:flex items-center space-x-1 text-sm">
+                    <span id="system-status" class="inline-block w-2 h-2 rounded-full bg-danger pulse-animation"></span>
+                    <span>系统关闭中</span>
+                </div>
+                <button id="refresh-btn" class="bg-secondary/10 hover:bg-secondary/20 text-secondary px-3 py-1.5 rounded-lg transition-all flex items-center space-x-1 btn-hover">
+                    <i class="fa fa-refresh"></i>
+                    <span class="hidden sm:inline">刷新</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-6 md:py-10">
+        <!-- 博物馆信息卡片与系统状态分为左右两个模块 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- 左侧：博物馆信息卡片 - 优化UI -->
+            <div class="bg-gradient-to-r from-secondary/90 to-secondary rounded-xl shadow-lg p-5 md:p-7 text-white card-hover overflow-hidden relative">
+                <!-- 装饰元素 -->
+                <div class="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20"></div>
+                <div class="absolute bottom-0 left-0 w-20 h-20 bg-white/10 rounded-full -ml-10 -mb-10"></div>
+                
+                <div class="flex items-center mb-6 relative z-10">
+                    <i class="fa fa-university text-4xl mr-3"></i>
+                    <div>
+                        <h2 class="text-[clamp(1.25rem,3vw,1.5rem)] font-bold">陕西历史博物馆</h2>
+                        <p class="opacity-90 text-sm mt-0.5">实时监控门票数据及系统运行情况</p>
+                    </div>
+                </div>
+                
+                <!-- 优化的三个数据小模块 - 增大尺寸，调整底色，突出字体 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
+                    <div class="bg-white/15 backdrop-blur-sm p-4 rounded-xl stat-card border border-white/20">
+                        <p class="opacity-90 text-sm font-medium">当日门票限额</p>
+                        <p class="font-bold text-xl mt-1 text-white">14000</p>
+                    </div>
+                    <div class="bg-white/15 backdrop-blur-sm p-4 rounded-xl stat-card border border-white/20">
+                        <p class="opacity-90 text-sm font-medium">当日门票已约</p>
+                        <p class="font-bold text-xl mt-1 text-white" id="tickets-booked">0</p>
+                    </div>
+                    <div class="bg-white/15 backdrop-blur-sm p-4 rounded-xl stat-card border border-white/20">
+                        <p class="opacity-90 text-sm font-medium">当前余票</p>
+                        <p class="font-bold text-xl mt-1 text-success" id="ticket-count-display">0</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧：系统状态监测模块 - 优化UI -->
+            <div class="bg-white rounded-xl shadow-lg p-5 md:p-7 border border-slate-100 card-hover overflow-hidden relative">
+                <!-- 装饰元素 -->
+                <div class="absolute top-0 right-0 w-40 h-40 bg-primary/5 rounded-full -mr-20 -mt-20"></div>
+                
+                <div class="flex items-center mb-6 relative z-10">
+                    <i class="fa fa-cogs text-4xl mr-3 text-primary"></i>
+                    <div>
+                        <h2 class="text-[clamp(1.25rem,3vw,1.5rem)] font-bold text-dark">系统状态监测</h2>
+                        <p class="opacity-70 text-sm mt-0.5">实时监控系统运行状态及连接情况</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
+                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div class="flex items-center">
+                            <span id="detection-status-indicator" class="inline-block w-2 h-2 rounded-full bg-danger pulse-animation mr-2"></span>
+                            <span id="detection-status-text" class="text-sm font-medium">未检测</span>
+                        </div>
+                        <div class="flex items-center mt-3">
+                            <span id="connection-status-indicator" class="inline-block w-2 h-2 rounded-full bg-danger pulse-animation mr-2"></span>
+                            <span id="connection-status-text" class="text-sm font-medium">未连接</span>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div class="flex items-center">
+                            <span class="inline-block w-2 h-2 rounded-full bg-primary/70 pulse-animation mr-2"></span>
+                            <span id="uptime" class="text-xs text-slate-600 font-medium">运行时间: 00:00:00</span>
+                        </div>
+                        <div class="flex items-center mt-3">
+                            <span class="inline-block w-2 h-2 rounded-full bg-primary/70 pulse-animation mr-2"></span>
+                            <span id="system-mode" class="text-xs font-medium text-danger">已关闭</span>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 sm:col-span-2">
+                        <p class="opacity-70 text-sm font-medium mb-2">下次放票时间</p>
+                        <p class="font-bold text-base text-dark" id="next-release-time">系统未启动</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 状态概览卡片 - 优化UI -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
+            <!-- 余票信息卡片 -->
+            <div class="bg-white rounded-xl shadow-md p-5 card-hover border-l-4 border-success transition-all duration-300 transform hover:shadow-lg">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h2 class="text-slate-500 font-medium text-xs">当前余票</h2>
+                        <p class="text-2xl md:text-3xl font-bold mt-1 text-success" id="ticket-count">0</p>
+                    </div>
+                    <div class="bg-success/10 p-2 rounded-lg">
+                        <i class="fa fa-ticket text-success"></i>
+                    </div>
+                </div>
+                <div class="flex items-center text-xs text-slate-500">
+                    <i class="fa fa-clock-o mr-1"></i>
+                    <span>最后更新: <span id="last-update">未更新</span></span>
+                </div>
+            </div>
+
+            <!-- 已约票数卡片 -->
+            <div class="bg-white rounded-xl shadow-md p-5 card-hover border-l-4 border-danger transition-all duration-300 transform hover:shadow-lg">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h2 class="text-slate-500 font-medium text-xs">当日已约</h2>
+                        <p class="text-2xl md:text-3xl font-bold mt-1 text-danger" id="tickets-booked-display">0</p>
+                    </div>
+                    <div class="bg-danger/10 p-2 rounded-lg">
+                        <i class="fa fa-users text-danger"></i>
+                    </div>
+                </div>
+                <div class="flex items-center text-xs text-slate-500">
+                    <i class="fa fa-percent mr-1"></i>
+                    <span>占总票额: <span id="booking-percentage">0.00%</span></span>
+                </div>
+            </div>
+
+            <!-- 放票倒计时卡片 -->
+            <div class="bg-white rounded-xl shadow-md p-5 card-hover border-l-4 border-warning transition-all duration-300 transform hover:shadow-lg">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <h2 class="text-slate-500 font-medium text-xs">下次放票倒计时</h2>
+                        <div class="flex items-baseline mt-1 space-x-1" id="countdown">
+                            <span class="text-2xl md:text-3xl font-bold" id="hours">00</span>
+                            <span class="text-lg">:</span>
+                            <span class="text-2xl md:text-3xl font-bold" id="minutes">00</span>
+                            <span class="text-lg">:</span>
+                            <span class="text-2xl md:text-3xl font-bold" id="seconds">00</span>
+                            <span class="text-lg">:</span>
+                            <span class="text-lg md:text-xl font-bold" id="milliseconds">000</span>
+                        </div>
+                    </div>
+                    <div class="bg-warning/10 p-2 rounded-lg">
+                        <i class="fa fa-clock-o text-warning"></i>
+                    </div>
+                </div>
+                <div class="flex items-center text-xs text-slate-500 flex-wrap">
+                    <i class="fa fa-calendar mr-1"></i>
+                    <span>数据更新: <span id="data-update-time">-</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 检测状态数据卡片 - 优化UI -->
+        <div class="bg-white rounded-xl shadow-md p-5 mb-8 transform transition-all duration-300 hover:shadow-lg">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 stat-card">
+                    <p class="text-xs text-slate-500 font-medium">今日监测次数</p>
+                    <p class="text-base font-bold" id="detection-count">0</p>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 stat-card">
+                    <p class="text-xs text-slate-500 font-medium">放票总次数</p>
+                    <p class="text-base font-bold" id="release-count">0</p>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 stat-card">
+                    <p class="text-xs text-slate-500 font-medium">数据更新频率</p>
+                    <p class="text-base font-bold">3秒/次</p>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-100 stat-card">
+                    <p class="text-xs text-slate-500 font-medium">系统状态</p>
+                    <p class="text-base font-bold" id="system-status-text">未运行</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图表区域 - 优化UI -->
+        <div class="grid grid-cols-1 gap-6 mb-8">
+            <!-- 余票趋势图 -->
+            <div class="bg-white rounded-xl shadow-md p-5 transition-all duration-300 hover:shadow-lg">
+                <div class="flex justify-between items-center mb-5">
+                    <h2 class="text-base font-semibold">今日余票与已约趋势</h2>
+                    <div class="flex space-x-2">
+                        <button id="chart-auto-scroll" class="text-xs px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors active">
+                            <i class="fa fa-refresh mr-1"></i>自动滚动
+                        </button>
+                        <button id="chart-zoom-in" class="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors">
+                            <i class="fa fa-search-plus mr-1"></i>放大
+                        </button>
+                        <button id="chart-zoom-out" class="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 transition-colors">
+                            <i class="fa fa-search-minus mr-1"></i>缩小
+                        </button>
+                    </div>
+                </div>
+                <div class="h-64 md:h-72">
+                    <canvas id="ticket-chart"></canvas>
+                </div>
+                <div class="mt-3 text-xs text-center text-slate-500">
+                    <span>实时更新：图表数据与余票、已约数据同步变化</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 系统日志和历史记录 - 优化UI -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- 余票变动记录 -->
+            <div class="bg-white rounded-xl shadow-md p-5 transition-all duration-300 hover:shadow-lg">
+                <div class="flex justify-between items-center mb-5">
+                    <h2 class="text-base font-semibold">余票变动记录</h2>
+                    <button class="text-xs text-secondary hover:underline transition-colors">查看全部</button>
+                </div>
+                <div class="space-y-3 max-h-64 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" id="history-list">
+                    <!-- 空状态显示 -->
+                    <div id="history-empty-state" class="text-center text-slate-400 py-10">
+                        <i class="fa fa-history text-2xl mb-2"></i>
+                        <p class="text-sm">暂无变动记录</p>
+                    </div>
+                    <!-- 记录项将通过JS动态添加 -->
+                </div>
+            </div>
+
+            <!-- 系统日志 -->
+            <div class="bg-white rounded-xl shadow-md p-5 transition-all duration-300 hover:shadow-lg">
+                <div class="flex justify-between items-center mb-5">
+                    <h2 class="text-base font-semibold">系统日志</h2>
+                    <div class="flex space-x-3">
+                        <button id="clear-log" class="text-xs text-slate-500 hover:text-danger transition-colors">清空日志</button>
+                    </div>
+                </div>
+                <div class="bg-slate-50 rounded-lg p-3 h-64 overflow-y-auto text-xs scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" id="system-log">
+                    <p class="text-slate-500"><i class="fa fa-info-circle mr-1"></i> 系统初始化完成，开始监控陕西历史博物馆余票信息</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-dark text-white py-6">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <div class="flex items-center justify-center md:justify-start space-x-2">
+                        <i class="fa fa-university text-secondary"></i>
+                        <span class="font-bold">陕西历史博物馆余票监测系统</span>
+                    </div>
+                    <p class="text-slate-400 text-sm mt-1 text-center md:text-left">实时监测 · 精准提醒</p>
+                </div>
+                <div class="flex space-x-6">
+                    <button id="settings-btn" class="text-slate-400 hover:text-white transition-colors">
+                        <i class="fa fa-cog"></i>
+                        <span class="ml-1">设置</span>
+                    </button>
+                </div>
+            </div>
+            <div class="border-t border-slate-700 mt-4 pt-4 text-center text-slate-400 text-sm">
+                © 2025 陕西历史博物馆余票监测系统
+            </div>
+        </div>
+    </footer>
+
+    <!-- 引入Chart.js用于图表展示 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <!-- 主脚本 -->
+    <script>
+        // 全局变量
+        let ticketHistory = [];
+        let bookedHistory = []; // 已约票数历史记录
+        let timeLabels = []; // 动态时间标签数组
+        let startTime = new Date();
+        let totalTickets = 14000; // 总票数
+        let currentTickets = 0; // 当前余票 - 系统关闭时为0
+        let ticketsBooked = 0; // 已预约票数 - 系统关闭时为0
+        let nextReleaseTime = null; // 下次放票时间
+        let releaseIntervals = []; // 放票时间点数组
+        let isFirstLoad = true; // 是否首次加载
+        let isMainReleaseActive = false; // 是否处于17:00-17:02的主要放票时段
+        let lastHourChecked = -1; // 用于跟踪上次检查的小时，避免重复弹窗
+        let detectionCount = 0; // 监测次数
+        let releaseCount = 0; // 放票次数
+        let isTestReleaseActive = false; // 是否正在进行测试放票
+        let testReleaseStartTime = null; // 测试放票开始时间
+        let testReleasePhase = 0; // 测试放票阶段 (0-未开始, 1-第1阶段, 2-第2阶段, 3-第3阶段, 4-第4阶段, 5-结束)
+        let ticketsReleasedInTest = 0; // 测试放票已放出的票数
+        let chartAutoScroll = true; // 图表是否自动滚动到最新数据
+        let chartZoomLevel = 1; // 图表缩放级别
+        let isSystemRunning = false; // 系统是否运行中
+        let systemStartTime = null; // 系统启动时间
+        let systemStartTimeFormatted = ""; // 格式化的系统启动时间
+        let updateInterval = null; // 数据更新定时器
+        let statusInterval = null; // 状态更新定时器
+        
+        // DOM元素
+        const ticketCountEl = document.getElementById('ticket-count');
+        const ticketCountDisplayEl = document.getElementById('ticket-count-display');
+        const ticketsBookedEl = document.getElementById('tickets-booked');
+        const ticketsBookedDisplayEl = document.getElementById('tickets-booked-display');
+        const bookingPercentageEl = document.getElementById('booking-percentage');
+        const lastUpdateEl = document.getElementById('last-update');
+        const dataUpdateTimeEl = document.getElementById('data-update-time');
+        const hoursEl = document.getElementById('hours');
+        const minutesEl = document.getElementById('minutes');
+        const secondsEl = document.getElementById('seconds');
+        const millisecondsEl = document.getElementById('milliseconds');
+        const nextReleaseTimeEl = document.getElementById('next-release-time');
+        const historyListEl = document.getElementById('history-list');
+        const historyEmptyStateEl = document.getElementById('history-empty-state');
+        const systemLogEl = document.getElementById('system-log');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const clearLogBtn = document.getElementById('clear-log');
+        const clearLogModal = document.getElementById('clear-log-modal');
+        const confirmClearLog = document.getElementById('confirm-clear-log');
+        const cancelClearLog = document.getElementById('cancel-clear-log');
+        const closeSystemModal = document.getElementById('close-system-modal');
+        const confirmCloseSystem = document.getElementById('confirm-close-system');
+        const cancelCloseSystem = document.getElementById('cancel-close-system');
+        const hourlyModal = document.getElementById('hourly-modal');
+        const modalMessage = document.getElementById('modal-message');
+        const closeModal = document.getElementById('close-modal');
+        const testBtn = document.getElementById('test-btn');
+        const testModal = document.getElementById('test-modal');
+        const closeTestModal = document.getElementById('close-test-modal');
+        const uptimeEl = document.getElementById('uptime');
+        const detectionCountEl = document.getElementById('detection-count');
+        const releaseCountEl = document.getElementById('release-count');
+        const detectionStatusIndicator = document.getElementById('detection-status-indicator');
+        const detectionStatusText = document.getElementById('detection-status-text');
+        const connectionStatusIndicator = document.getElementById('connection-status-indicator');
+        const connectionStatusText = document.getElementById('connection-status-text');
+        const chartAutoScrollBtn = document.getElementById('chart-auto-scroll');
+        const chartZoomInBtn = document.getElementById('chart-zoom-in');
+        const chartZoomOutBtn = document.getElementById('chart-zoom-out');
+        const startSystemBtn = document.getElementById('start-system');
+        const stopSystemBtn = document.getElementById('stop-system');
+        const systemStatusEl = document.getElementById('system-status');
+        const systemModeEl = document.getElementById('system-mode');
+        const systemStatusTextEl = document.getElementById('system-status-text');
+        
+        // 初始化图表 - 包含余票和已约票数两条线
+        const ctx = document.getElementById('ticket-chart').getContext('2d');
+        const ticketChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timeLabels,
+                datasets: [
+                    {
+                        label: '余票数量',
+                        data: [],
+                        borderColor: '#36D399', // 绿色
+                        backgroundColor: 'rgba(54, 211, 153, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#36D399',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: '已约票数',
+                        data: [],
+                        borderColor: '#F87272', // 红色
+                        backgroundColor: 'rgba(248, 114, 114, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#F87272',
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                animation: {
+                    duration: 500 // 缩短动画时间，提高实时感
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: false,
+                        min: 0,
+                        max: 14000, // Y轴最大值为总票数
+                        ticks: {
+                            stepSize: 2000 // 每2000为一个刻度
+                        },
+                        title: {
+                            display: true,
+                            text: '余票数量',
+                            color: '#36D399'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        min: 0,
+                        max: 14000, // Y轴最大值为总票数
+                        grid: {
+                            drawOnChartArea: false // 不在另一个轴上绘制网格
+                        },
+                        ticks: {
+                            stepSize: 2000 // 每2000为一个刻度
+                        },
+                        title: {
+                            display: true,
+                            text: '已约票数',
+                            color: '#F87272'
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            autoSkip: true,
+                            maxRotation: 0,
+                            maxTicksLimit: 10 // 限制X轴显示的刻度数量
+                        },
+                        title: {
+                            display: true,
+                            text: '时间'
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                return `时间: ${tooltipItems[0].label}`;
+                            }
+                        }
+                    },
+                    legend: {
+                        position: 'top',
+                    }
+                }
+            }
+        });
+        
+        // 初始化放票时间计划
+        function initReleaseSchedule() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            // 设置今日固定放票时间点
+            // 17:00-17:02 主要放票时段（按秒分段）
+            for (let i = 0; i <= 2; i++) {
+                for (let j = 0; j < 60; j++) {
+                    releaseIntervals.push(new Date(today.getTime() + 17 * 60 * 60 * 1000 + i * 60 * 1000 + j * 1000));
+                }
+            }
+            
+            // 17:15 放票
+            releaseIntervals.push(new Date(today.getTime() + 17 * 60 * 60 * 1000 + 15 * 60 * 1000));
+            
+            // 17:30 放票
+            releaseIntervals.push(new Date(today.getTime() + 17 * 60 * 60 * 1000 + 30 * 60 * 1000));
+            
+            // 检查当前时间是否已过某些放票时间
+            updateNextReleaseTime();
+        }
+        
+        // 更新下次放票时间
+        function updateNextReleaseTime() {
+            if (isTestReleaseActive || !isSystemRunning) return; // 测试放票期间或系统关闭时不更新正常放票时间
+            
+            // 当余票为0时，设置倒计时为0
+            if (currentTickets <= 0) {
+                nextReleaseTime = null;
+                nextReleaseTimeEl.textContent = "今日票已约完";
+                return;
+            }
+            
+            const now = new Date();
+            let found = false;
+            
+            // 检查是否有已计划但未到的放票时间
+            for (let i = 0; i < releaseIntervals.length; i++) {
+                if (releaseIntervals[i] > now) {
+                    nextReleaseTime = releaseIntervals[i];
+                    nextReleaseTimeEl.textContent = formatDateTimeForDisplay(nextReleaseTime);
+                    
+                    // 检查是否处于17:00-17:02主要放票时段
+                    const hours = nextReleaseTime.getHours();
+                    const minutes = nextReleaseTime.getMinutes();
+                    isMainReleaseActive = hours === 17 && minutes >= 0 && minutes <= 2;
+                    
+                    found = true;
+                    break;
+                }
+            }
+            
+            // 如果没有找到，添加新的随机放票时间（45-60分钟后）
+            if (!found) {
+                // 检查是否已约满全部票
+                if (ticketsBooked >= totalTickets) {
+                    nextReleaseTime = null;
+                    nextReleaseTimeEl.textContent = "今日票已约完";
+                    addSystemLog("今日所有门票已全部预约", "info");
+                    return;
+                }
+                
+                const randomMinutes = 45 + Math.floor(Math.random() * 16); // 45-60分钟
+                nextReleaseTime = new Date(now.getTime() + randomMinutes * 60 * 1000);
+                releaseIntervals.push(nextReleaseTime);
+                
+                nextReleaseTimeEl.textContent = formatDateTimeForDisplay(nextReleaseTime);
+                addSystemLog(`下次随机放票时间已确定: ${formatDateTimeForDisplay(nextReleaseTime)}`, "info");
+                isMainReleaseActive = false;
+            }
+        }
+        
+        // 格式化日期时间用于显示（精确到毫秒）
+        function formatDateTime(date) {
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }) + '.' + date.getMilliseconds().toString().padStart(3, '0');
+        }
+        
+        // 格式化显示下次放票时间（带年月日和毫秒）
+        function formatDateTimeForDisplay(date) {
+            return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
+        }
+        
+        // 格式化时间（仅时分秒）
+        function formatTime(date) {
+            return date.toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        
+        // 格式化系统启动时间
+        function formatSystemStartTime(date) {
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        
+        // 格式化时间为小时:分钟:秒格式（用于图表X轴）
+        function formatHourMinuteSecond(date) {
+            return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+        }
+        
+        // 格式化时间为时分秒（用于运行时间）
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        // 更新倒计时（精确到毫秒）
+        function updateCountdown() {
+            if (!isSystemRunning) return;
+            
+            const now = new Date();
+            
+            // 当余票为0时，倒计时显示为0
+            if (currentTickets <= 0) {
+                hoursEl.textContent = '00';
+                minutesEl.textContent = '00';
+                secondsEl.textContent = '00';
+                millisecondsEl.textContent = '000';
+                return;
+            }
+            
+            // 检查是否正在进行测试放票
+            if (isTestReleaseActive) {
+                runTestRelease(now);
+                return;
+            }
+            
+            // 检查是否到达整点，显示弹窗提示
+            checkHourlyReminder(now);
+            
+            // 检查是否到了放票时间
+            if (nextReleaseTime && now >= nextReleaseTime) {
+                releaseTickets();
+                updateNextReleaseTime();
+            }
+            
+            if (!nextReleaseTime) {
+                hoursEl.textContent = '00';
+                minutesEl.textContent = '00';
+                secondsEl.textContent = '00';
+                millisecondsEl.textContent = '000';
+                return;
+            }
+            
+            const diff = nextReleaseTime - now;
+            
+            if (diff <= 0) {
+                hoursEl.textContent = '00';
+                minutesEl.textContent = '00';
+                secondsEl.textContent = '00';
+                millisecondsEl.textContent = '000';
+                return;
+            }
+            
+            // 计算时、分、秒、毫秒
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+            const milliseconds = Math.floor((diff % 1000));
+            
+            // 当倒计时小于10分钟时，添加警告效果
+            if (diff < 10 * 60 * 1000) {
+                secondsEl.classList.add('text-warning', 'font-bold');
+                minutesEl.classList.add('text-warning', 'font-bold');
+                millisecondsEl.classList.add('text-warning', 'font-bold');
+                if (hours === 0) {
+                    hoursEl.classList.add('text-warning', 'font-bold');
+                }
+            } else {
+                secondsEl.classList.remove('text-warning', 'font-bold');
+                minutesEl.classList.remove('text-warning', 'font-bold');
+                millisecondsEl.classList.remove('text-warning', 'font-bold');
+                hoursEl.classList.remove('text-warning', 'font-bold');
+            }
+            
+            // 更新显示
+            hoursEl.textContent = hours.toString().padStart(2, '0');
+            minutesEl.textContent = minutes.toString().padStart(2, '0');
+            secondsEl.textContent = seconds.toString().padStart(2, '0');
+            millisecondsEl.textContent = milliseconds.toString().padStart(3, '0');
+        }
+        
+        // 检查是否到达整点并显示提醒
+        function checkHourlyReminder(now) {
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+            const currentSecond = now.getSeconds();
+            
+            // 检查是否是整点（分钟和秒都为0）且与上次检查的小时不同
+            if (currentMinute === 0 && currentSecond === 0 && currentHour !== lastHourChecked) {
+                lastHourChecked = currentHour;
+                
+                // 根据距离下次放票的时间显示不同的消息
+                let message = '';
+                if (nextReleaseTime) {
+                    const diffHours = Math.floor((nextReleaseTime - now) / (1000 * 60 * 60));
+                    const diffMinutes = Math.floor((nextReleaseTime - now) % (1000 * 60 * 60) / (1000 * 60));
+                    
+                    if (diffHours < 1) {
+                        message = `现在是${currentHour}:00，距离下次放票还有${diffMinutes}分钟`;
+                    } else {
+                        message = `现在是${currentHour}:00，距离下次放票还有${diffHours}小时${diffMinutes}分钟`;
+                    }
+                } else {
+                    message = `现在是${currentHour}:00，今日票已全部约完`;
+                }
+                
+                // 显示弹窗
+                modalMessage.textContent = message;
+                hourlyModal.classList.remove('hidden');
+                
+                // 添加日志
+                addSystemLog(`整点提醒: ${message}`, "info");
+                
+                // 播放提示音
+                playNotificationSound();
+            }
+        }
+        
+        // 关闭弹窗
+        closeModal.addEventListener('click', () => {
+            hourlyModal.classList.add('hidden');
+        });
+        
+        // 点击弹窗背景关闭弹窗
+        hourlyModal.addEventListener('click', (e) => {
+            if (e.target === hourlyModal) {
+                hourlyModal.classList.add('hidden');
+            }
+        });
+        
+        // 关闭测试弹窗
+        closeTestModal.addEventListener('click', () => {
+            testModal.classList.add('hidden');
+        });
+        
+        // 点击测试弹窗背景关闭弹窗
+        testModal.addEventListener('click', (e) => {
+            if (e.target === testModal) {
+                testModal.classList.add('hidden');
+            }
+        });
+        
+        // 清空日志确认/取消
+        clearLogBtn.addEventListener('click', () => {
+            clearLogModal.classList.remove('hidden');
+        });
+        
+        confirmClearLog.addEventListener('click', () => {
+            clearLogModal.classList.add('hidden');
+            clearSystemLog();
+        });
+        
+        cancelClearLog.addEventListener('click', () => {
+            clearLogModal.classList.add('hidden');
+        });
+        
+        // 点击清空日志弹窗背景关闭弹窗
+        clearLogModal.addEventListener('click', (e) => {
+            if (e.target === clearLogModal) {
+                clearLogModal.classList.add('hidden');
+            }
+        });
+        
+        // 关闭系统确认/取消
+        stopSystemBtn.addEventListener('click', () => {
+            closeSystemModal.classList.remove('hidden');
+        });
+        
+        confirmCloseSystem.addEventListener('click', () => {
+            closeSystemModal.classList.add('hidden');
+            stopSystem();
+        });
+        
+        cancelCloseSystem.addEventListener('click', () => {
+            closeSystemModal.classList.add('hidden');
+        });
+        
+        // 点击关闭系统弹窗背景关闭弹窗
+        closeSystemModal.addEventListener('click', (e) => {
+            if (e.target === closeSystemModal) {
+                closeSystemModal.classList.add('hidden');
+            }
+        });
+        
+        // 清空系统日志，仅保留初始化信息
+        function clearSystemLog() {
+            systemLogEl.innerHTML = '<p class="text-slate-500"><i class="fa fa-info-circle mr-1"></i> 系统初始化完成，开始监控陕西历史博物馆余票信息</p>';
+            addSystemLog('系统日志已清空', 'info');
+        }
+        
+        // 放票逻辑 - 余票减少，已约增加
+        function releaseTickets() {
+            const now = new Date();
+            let ticketsToRelease = 0;
+            let releaseType = "";
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            
+            // 计算可预约票数（即剩余票数）
+            const availableTickets = currentTickets;
+            if (availableTickets <= 0) {
+                addSystemLog("今日所有门票已全部预约", "info");
+                return;
+            }
+            
+            // 17:00-17:02 主要放票时段（总票数的85%）
+            if (isMainReleaseActive) {
+                // 85%的票在120秒内均匀放出
+                const totalMainRelease = Math.floor(totalTickets * 0.85);
+                const ticketsPerSecond = Math.floor(totalMainRelease / 120);
+                
+                // 最后一秒可能需要放出剩余的票
+                const remainingMainTickets = totalMainRelease - (totalTickets - currentTickets);
+                ticketsToRelease = Math.min(ticketsPerSecond, remainingMainTickets, availableTickets);
+                
+                releaseType = "主要放票时段";
+                
+                // 每分钟的0秒时记录日志
+                if (now.getSeconds() === 0) {
+                    addSystemLog(`${hours}:${minutes} 主要放票持续中`, "success");
+                }
+            } 
+            // 17:15 放票（总票数的10%）
+            else if (hours === 17 && minutes === 15) {
+                ticketsToRelease = Math.floor(totalTickets * 0.1);
+                ticketsToRelease = Math.min(ticketsToRelease, availableTickets);
+                releaseType = "二次放票";
+                addSystemLog(`17:15 二次放票开始，放出${ticketsToRelease}张票`, "success");
+            } 
+            // 17:30 放票（总票数的4.5%）
+            else if (hours === 17 && minutes === 30) {
+                ticketsToRelease = Math.floor(totalTickets * 0.045);
+                ticketsToRelease = Math.min(ticketsToRelease, availableTickets);
+                releaseType = "三次放票";
+                addSystemLog(`17:30 三次放票开始，放出${ticketsToRelease}张票`, "success");
+            } 
+            // 后续随机放票（1-20张）
+            else {
+                ticketsToRelease = 1 + Math.floor(Math.random() * 20);
+                ticketsToRelease = Math.min(ticketsToRelease, availableTickets);
+                releaseType = "随机放票";
+                addSystemLog(`随机放票开始，放出 ${ticketsToRelease} 张票`, "success");
+            }
+            
+            // 更新计数
+            releaseCount++;
+            releaseCountEl.textContent = releaseCount;
+            
+            // 更新余票和已约数量
+            const previousCount = currentTickets;
+            currentTickets -= ticketsToRelease; // 余票减少
+            ticketsBooked += ticketsToRelease;  // 已约增加
+            
+            // 确保数据在有效范围内
+            if (currentTickets < 0) currentTickets = 0;
+            if (ticketsBooked > totalTickets) ticketsBooked = totalTickets;
+            
+            // 更新显示
+            updateTicketCount(currentTickets);
+            updateTicketsBooked();
+            
+            // 只有当票数有变化时才更新记录
+            if (currentTickets !== previousCount) {
+                // 主要放票时段每10秒记录一次，其他时段每次都记录
+                if (!isMainReleaseActive || now.getSeconds() % 10 === 0) {
+                    addHistoryItem(now, ticketsToRelease, releaseType, "放票");
+                }
+                
+                // 播放提示音效
+                playNotificationSound();
+                
+                // 检查是否已约满全部票
+                if (ticketsBooked >= totalTickets) {
+                    addSystemLog("今日所有门票已全部预约", "success");
+                }
+            }
+        }
+        
+        // 添加历史记录项
+        function addHistoryItem(date, amount, type, action) {
+            // 隐藏空状态
+            historyEmptyStateEl.classList.add('hidden');
+            
+            const historyItem = document.createElement('div');
+            historyItem.className = 'flex justify-between items-center pb-2 border-b border-slate-100 slide-in';
+            
+            let iconClass = '';
+            let textClass = '';
+            
+            if (action === "放票") {
+                iconClass = 'text-secondary';
+                textClass = '放出';
+            } else {
+                iconClass = 'text-primary';
+                textClass = '余票减少';
+            }
+            
+            historyItem.innerHTML = `
+                <div>
+                    <p class="font-medium text-sm">${formatTime(date)} <span class="text-xs ${iconClass}">${type}</span></p>
+                    <p class="text-xs text-slate-500">${textClass} ${amount} 张票</p>
+                </div>
+                <div class="text-right">
+                    <p class="font-bold text-success text-sm">余票: ${currentTickets}张</p>
+                    <p class="font-bold text-danger text-xs">已约: ${ticketsBooked}张</p>
+                </div>
+            `;
+            historyListEl.prepend(historyItem);
+            
+            // 限制历史记录数量
+            if (historyListEl.children.length > 10) {
+                historyListEl.removeChild(historyListEl.lastChild);
+            }
+        }
+        
+        // 测试放票逻辑
+        function startTestRelease() {
+            if (!isSystemRunning) {
+                addSystemLog("请先启动系统再进行测试", "error");
+                return;
+            }
+            
+            // 重置门票状态
+            currentTickets = 14000;  // 余票从14000开始
+            ticketsBooked = 0;       // 已约从0开始
+            ticketsReleasedInTest = 0;
+            updateTicketCount(currentTickets);
+            updateTicketsBooked();
+            
+            // 清空历史图表数据
+            timeLabels = [];
+            ticketChart.data.labels = [];
+            ticketChart.data.datasets[0].data = [];
+            ticketChart.data.datasets[1].data = [];
+            ticketChart.update();
+            
+            // 清空历史记录并显示空状态
+            while (historyListEl.children.length > 1) {
+                historyListEl.removeChild(historyListEl.firstChild);
+            }
+            historyEmptyStateEl.classList.remove('hidden');
+            
+            // 设置测试放票状态
+            isTestReleaseActive = true;
+            testReleaseStartTime = new Date();
+            testReleasePhase = 1;
+            
+            // 更新UI
+            nextReleaseTimeEl.textContent = "测试放票进行中";
+            addSystemLog("=== 开始测试放票流程 ===", "warning");
+            addSystemLog("测试放票阶段1: 第1分钟（0-60秒），将随机放出13000张票", "warning");
+            
+            // 记录系统状态
+            logSystemStatus();
+        }
+        
+        // 运行测试放票 - 调整为两分钟内完成，共4个阶段
+        function runTestRelease(now) {
+            const elapsedTime = (now - testReleaseStartTime) / 1000; // 已过去的秒数
+            
+            // 更新倒计时显示为测试放票进度
+            const totalTestTime = 120; // 总测试时间为120秒（2分钟）
+            const remainingTime = Math.max(0, totalTestTime - elapsedTime);
+            
+            const minutes = Math.floor(remainingTime / 60);
+            const seconds = Math.floor(remainingTime % 60);
+            const milliseconds = Math.floor((remainingTime % 1) * 1000);
+            
+            hoursEl.textContent = '00';
+            minutesEl.textContent = minutes.toString().padStart(2, '0');
+            secondsEl.textContent = seconds.toString().padStart(2, '0');
+            millisecondsEl.textContent = milliseconds.toString().padStart(3, '0');
+            
+            // 阶段1: 第1分钟（0-60秒），随机放出13000张票（每秒1-20张随机）
+            if (testReleasePhase === 1) {
+                if (elapsedTime > 60 || ticketsReleasedInTest >= 13000) {
+                    // 进入阶段2
+                    testReleasePhase = 2;
+                    addSystemLog("测试放票阶段2: 61-90秒，将较快速度放出900张票", "warning");
+                    logSystemStatus();
+                } else {
+                    // 每秒1-20张随机放票
+                    const ticketsToRelease = 1 + Math.floor(Math.random() * 20);
+                    const remainingToRelease = 13000 - ticketsReleasedInTest;
+                    const actualRelease = Math.min(ticketsToRelease, remainingToRelease, currentTickets);
+                    
+                    if (actualRelease > 0) {
+                        releaseTestTickets(actualRelease, "阶段1");
+                    }
+                }
+            }
+            // 阶段2: 61-90秒，较快速度放出900张票（每秒1-10张随机）
+            else if (testReleasePhase === 2) {
+                if (elapsedTime > 90 || ticketsReleasedInTest >= 13000 + 900) {
+                    // 进入阶段3
+                    testReleasePhase = 3;
+                    addSystemLog("测试放票阶段3: 91-110秒，将变速放出90张票", "warning");
+                    logSystemStatus();
+                } else {
+                    // 每秒1-10张随机放票
+                    const ticketsToRelease = 1 + Math.floor(Math.random() * 10);
+                    const remainingToRelease = 13000 + 900 - ticketsReleasedInTest;
+                    const actualRelease = Math.min(ticketsToRelease, remainingToRelease, currentTickets);
+                    
+                    if (actualRelease > 0) {
+                        releaseTestTickets(actualRelease, "阶段2");
+                    }
+                }
+            }
+            // 阶段3: 91-110秒，变速放出90张票（每秒2-6张随机）
+            else if (testReleasePhase === 3) {
+                if (elapsedTime > 110 || ticketsReleasedInTest >= 13000 + 900 + 90) {
+                    // 进入阶段4
+                    testReleasePhase = 4;
+                    addSystemLog("测试放票阶段4: 111-120秒，将放完剩余10张票", "warning");
+                    logSystemStatus();
+                } else {
+                    // 每秒2-6张随机放票
+                    const ticketsToRelease = 2 + Math.floor(Math.random() * 5);
+                    const remainingToRelease = 13000 + 900 + 90 - ticketsReleasedInTest;
+                    const actualRelease = Math.min(ticketsToRelease, remainingToRelease, currentTickets);
+                    
+                    if (actualRelease > 0) {
+                        releaseTestTickets(actualRelease, "阶段3");
+                    }
+                }
+            }
+            // 阶段4: 111-120秒，放完剩余10张票
+            else if (testReleasePhase === 4) {
+                if (elapsedTime > 120 || ticketsReleasedInTest >= 14000) {
+                    // 测试放票结束
+                    endTestRelease();
+                    return;
+                } else {
+                    // 放完剩余的票
+                    const remainingToRelease = 14000 - ticketsReleasedInTest;
+                    const actualRelease = Math.min(remainingToRelease, currentTickets);
+                    
+                    if (actualRelease > 0) {
+                        releaseTestTickets(actualRelease, "阶段4");
+                    }
+                }
+            }
+        }
+        
+        // 释放测试票
+        function releaseTestTickets(amount, phase) {
+            if (amount <= 0) return;
+            
+            const now = new Date();
+            const previousCount = currentTickets;
+            
+            // 更新票数 - 余票减少，已约增加
+            currentTickets -= amount;
+            ticketsReleasedInTest += amount;
+            ticketsBooked += amount;
+            
+            // 确保数据在有效范围内
+            if (currentTickets < 0) currentTickets = 0;
+            if (ticketsBooked > totalTickets) ticketsBooked = totalTickets;
+            
+            // 更新显示
+            updateTicketCount(currentTickets);
+            updateTicketsBooked();
+            
+            // 更新计数
+            releaseCount++;
+            releaseCountEl.textContent = releaseCount;
+            
+            // 添加记录 - 只显示时间（精确到毫秒）和票数
+            addHistoryItem(now, amount, `测试${phase}`, "放票");
+            
+            // 添加日志 - 不显示放票速度
+            addSystemLog(`测试${phase}：${formatDateTime(now)} 放出${amount}张票，累计已放${ticketsReleasedInTest}张`, "success");
+            
+            // 播放提示音效
+            playNotificationSound();
+        }
+        
+        // 结束测试放票
+        function endTestRelease() {
+            isTestReleaseActive = false;
+            testReleasePhase = 0;
+            
+            addSystemLog("=== 测试放票流程结束 ===", "warning");
+            addSystemLog(`测试放票结果：共放出${ticketsReleasedInTest}张票`, "info");
+            logSystemStatus();
+            
+            // 恢复正常放票时间
+            updateNextReleaseTime();
+        }
+        
+        // 启动系统
+        function startSystem() {
+            if (isSystemRunning) return;
+            
+            // 更新系统状态
+            isSystemRunning = true;
+            systemStartTime = new Date();
+            systemStartTimeFormatted = formatSystemStartTime(systemStartTime);
+            startTime = systemStartTime;
+            
+            // 重置系统数据
+            currentTickets = 14000;  // 余票从14000开始
+            ticketsBooked = 0;       // 已约从0开始
+            detectionCount = 0;
+            releaseCount = 0;
+            releaseIntervals = [];
+            isTestReleaseActive = false;
+            testReleasePhase = 0;
+            
+            // 清空历史图表数据
+            timeLabels = [];
+            ticketHistory = [];
+            bookedHistory = [];
+            ticketChart.data.labels = [];
+            ticketChart.data.datasets[0].data = [];
+            ticketChart.data.datasets[1].data = [];
+            ticketChart.update();
+            
+            // 清空历史记录并显示空状态
+            while (historyListEl.children.length > 1) {
+                historyListEl.removeChild(historyListEl.firstChild);
+            }
+            historyEmptyStateEl.classList.remove('hidden');
+            
+            // 更新UI显示
+            updateTicketCount(currentTickets);
+            updateTicketsBooked();
+            detectionCountEl.textContent = detectionCount;
+            releaseCountEl.textContent = releaseCount;
+            nextReleaseTimeEl.textContent = "计算中...";
+            dataUpdateTimeEl.textContent = systemStartTimeFormatted; // 显示系统启动时间
+            systemStatusTextEl.textContent = "运行中";
+            
+            // 更新系统状态显示
+            startSystemBtn.classList.add('hidden');
+            stopSystemBtn.classList.remove('hidden');
+            systemStatusEl.className = 'inline-block w-2 h-2 rounded-full bg-success pulse-animation';
+            systemStatusEl.nextElementSibling.textContent = '系统运行中';
+            systemModeEl.textContent = '运行中';
+            systemModeEl.className = 'text-xs text-success';
+            
+            // 更新检测状态
+            detectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-success pulse-animation mr-2';
+            detectionStatusText.textContent = '检测正常';
+            connectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-success pulse-animation mr-2';
+            connectionStatusText.textContent = '连接稳定';
+            
+            // 初始化放票计划
+            initReleaseSchedule();
+            
+            // 记录系统启动日志
+            addSystemLog("=== 系统启动 ===", "success");
+            addSystemLog("开始初始化各模块...", "info");
+            addSystemLog("余票监测模块已启动", "info");
+            addSystemLog("数据同步模块已启动", "info");
+            addSystemLog("图表展示模块已启动", "info");
+            addSystemLog("系统已进入工作模式", "success");
+            
+            // 启动定时器
+            updateInterval = setInterval(simulateExternalTicketData, 3000); // 每3秒检查一次
+            statusInterval = setInterval(updateSystemStatus, 1000); // 每秒更新一次系统状态
+            
+            // 首次加载数据
+            setTimeout(() => {
+                simulateExternalTicketData();
+            }, 1000);
+            
+            // 启动高精度倒计时
+            requestAnimationFrame(updateCountdownWithHighPrecision);
+        }
+        
+        // 关闭系统 - 确保所有数据包括倒计时都重置为初始状态
+        function stopSystem() {
+            if (!isSystemRunning) return;
+            
+            // 停止定时器
+            clearInterval(updateInterval);
+            clearInterval(statusInterval);
+            
+            // 更新系统状态
+            isSystemRunning = false;
+            
+            // 重置所有系统数据
+            currentTickets = 0;
+            ticketsBooked = 0;
+            detectionCount = 0;
+            releaseCount = 0;
+            nextReleaseTime = null;
+            releaseIntervals = [];
+            isTestReleaseActive = false;
+            testReleasePhase = 0;
+            
+            // 更新UI显示，确保倒计时重置为0
+            updateTicketCount(currentTickets);
+            updateTicketsBooked();
+            detectionCountEl.textContent = detectionCount;
+            releaseCountEl.textContent = releaseCount;
+            lastUpdateEl.textContent = "系统已关闭";
+            nextReleaseTimeEl.textContent = "系统未启动";
+            dataUpdateTimeEl.textContent = "系统已关闭"; // 系统关闭时显示
+            hoursEl.textContent = '00';
+            minutesEl.textContent = '00';
+            secondsEl.textContent = '00';
+            millisecondsEl.textContent = '000';
+            systemStatusTextEl.textContent = "未运行";
+            
+            // 更新系统状态显示
+            startSystemBtn.classList.remove('hidden');
+            stopSystemBtn.classList.add('hidden');
+            systemStatusEl.className = 'inline-block w-2 h-2 rounded-full bg-danger pulse-animation';
+            systemStatusEl.nextElementSibling.textContent = '系统关闭中';
+            systemModeEl.textContent = '已关闭';
+            systemModeEl.className = 'text-xs text-danger';
+            
+            // 更新检测状态
+            detectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-danger pulse-animation mr-2';
+            detectionStatusText.textContent = '未检测';
+            connectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-danger pulse-animation mr-2';
+            connectionStatusText.textContent = '未连接';
+            uptimeEl.textContent = '运行时间: 00:00:00';
+            
+            // 清空历史记录并显示空状态
+            while (historyListEl.children.length > 1) {
+                historyListEl.removeChild(historyListEl.firstChild);
+            }
+            historyEmptyStateEl.classList.remove('hidden');
+            
+            // 清空图表数据
+            timeLabels = [];
+            ticketHistory = [];
+            bookedHistory = [];
+            ticketChart.data.labels = [];
+            ticketChart.data.datasets[0].data = [];
+            ticketChart.data.datasets[1].data = [];
+            ticketChart.update();
+            
+            // 记录系统关闭日志
+            addSystemLog("=== 系统已关闭 ===", "warning");
+            addSystemLog("所有监测模块已停止工作", "info");
+        }
+        
+        // 系统初始化函数
+        function initializeSystem() {
+            if (isSystemRunning) {
+                // 停止测试并初始化系统
+                currentTickets = 14000;  // 余票从14000开始
+                ticketsBooked = 0;       // 已约从0开始
+                detectionCount = 0;
+                releaseCount = 0;
+                releaseIntervals = [];
+                isTestReleaseActive = false;
+                testReleasePhase = 0;
+                
+                // 清空历史图表数据
+                timeLabels = [];
+                ticketChart.data.labels = [];
+                ticketChart.data.datasets[0].data = [];
+                ticketChart.data.datasets[1].data = [];
+                ticketChart.update();
+                
+                // 清空历史记录并显示空状态
+                while (historyListEl.children.length > 1) {
+                    historyListEl.removeChild(historyListEl.firstChild);
+                }
+                historyEmptyStateEl.classList.remove('hidden');
+                
+                // 更新UI显示
+                updateTicketCount(currentTickets);
+                updateTicketsBooked();
+                detectionCountEl.textContent = detectionCount;
+                releaseCountEl.textContent = releaseCount;
+                
+                // 重新初始化放票计划
+                initReleaseSchedule();
+                
+                addSystemLog("系统已重置", "info");
+            }
+        }
+        
+        // 记录系统状态
+        function logSystemStatus() {
+            addSystemLog(`系统状态 - 余票: ${currentTickets}, 已约: ${ticketsBooked}, 监测次数: ${detectionCount}, 放票次数: ${releaseCount}`, "info");
+        }
+        
+        // 更新已预约数量显示 - 精确到小数点后两位
+        function updateTicketsBooked() {
+            if (!isSystemRunning) {
+                ticketsBookedEl.textContent = 0;
+                ticketsBookedDisplayEl.textContent = 0;
+                bookingPercentageEl.textContent = "0.00%";
+                return;
+            }
+            
+            // 添加闪烁动画
+            ticketsBookedEl.classList.add('ticket-flash');
+            ticketsBookedDisplayEl.classList.add('ticket-flash');
+            
+            setTimeout(() => {
+                ticketsBookedEl.classList.remove('ticket-flash');
+                ticketsBookedDisplayEl.classList.remove('ticket-flash');
+            }, 1000);
+            
+            // 更新已约票数显示
+            ticketsBookedEl.textContent = ticketsBooked;
+            ticketsBookedDisplayEl.textContent = ticketsBooked;
+            
+            // 计算并更新百分比，精确到小数点后两位
+            const percentage = (ticketsBooked / totalTickets) * 100;
+            bookingPercentageEl.textContent = percentage.toFixed(2) + '%';
+        }
+        
+        // 播放提示音效
+        function playNotificationSound() {
+            if (!isSystemRunning) return;
+            
+            try {
+                // 简单的提示音
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 音调
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.3); // 持续时间
+            } catch (e) {
+                console.log("提示音播放失败:", e);
+            }
+        }
+        
+        // 更新余票数量显示
+        function updateTicketCount(count) {
+            if (!isSystemRunning) {
+                ticketCountEl.textContent = 0;
+                ticketCountDisplayEl.textContent = 0;
+                return;
+            }
+            
+            // 添加闪烁动画
+            ticketCountEl.classList.add('ticket-flash');
+            ticketCountDisplayEl.classList.add('ticket-flash');
+            
+            setTimeout(() => {
+                ticketCountEl.classList.remove('ticket-flash');
+                ticketCountDisplayEl.classList.remove('ticket-flash');
+            }, 1000);
+            
+            ticketCountEl.textContent = count;
+            ticketCountDisplayEl.textContent = count;
+            
+            // 根据余票数量设置颜色
+            if (count > 0) {
+                ticketCountEl.className = 'text-2xl md:text-3xl font-bold mt-1 text-success';
+                ticketCountDisplayEl.className = 'font-bold text-xl mt-1 text-success';
+            } else {
+                ticketCountEl.className = 'text-2xl md:text-3xl font-bold mt-1 text-danger';
+                ticketCountDisplayEl.className = 'font-bold text-xl mt-1 text-danger';
+            }
+            
+            // 更新最后更新时间
+            const now = new Date();
+            lastUpdateEl.textContent = formatTime(now);
+            
+            // 更新图表 - 每次票数变化都更新图表
+            updateChart(count, ticketsBooked, now);
+        }
+        
+        // 更新图表数据 - 同时更新余票和已约票数，实现实时互动
+        function updateChart(ticketCount, bookedCount, date) {
+            if (!isSystemRunning) return;
+            
+            // 获取当前时间标签
+            const timeStr = formatHourMinuteSecond(date);
+            
+            // 只在数据有变化时添加新的时间点（避免图表过于拥挤）
+            if (timeLabels.length === 0 || 
+                timeLabels[timeLabels.length - 1] !== timeStr || 
+                ticketHistory[ticketHistory.length - 1] !== ticketCount) {
+                
+                // 添加新的数据点
+                timeLabels.push(timeStr);
+                ticketHistory.push(ticketCount);
+                bookedHistory.push(bookedCount);
+                
+                // 限制数据点数量，保持图表性能
+                const maxDataPoints = 30 * chartZoomLevel; // 根据缩放级别调整
+                if (timeLabels.length > maxDataPoints) {
+                    timeLabels.shift();
+                    ticketHistory.shift();
+                    bookedHistory.shift();
+                }
+                
+                // 更新图表数据
+                ticketChart.data.labels = timeLabels;
+                ticketChart.data.datasets[0].data = ticketHistory;
+                ticketChart.data.datasets[1].data = bookedHistory;
+                
+                // 如果启用自动滚动，确保最新数据可见
+                if (chartAutoScroll) {
+                    ticketChart.options.scales.x.ticks.maxTicksLimit = Math.min(10, timeLabels.length);
+                    ticketChart.options.scales.x.min = timeLabels.length > 10 ? timeLabels[timeLabels.length - 10] : undefined;
+                    ticketChart.options.scales.x.max = undefined;
+                }
+                
+                // 实时更新图表
+                ticketChart.update('none'); // 禁用动画以提高性能
+                
+                // 添加日志记录图表更新
+                addSystemLog(`图表已更新 - 余票: ${ticketCount}, 已约: ${bookedCount}`, "info", true);
+            }
+        }
+        
+        // 更新运行时间和系统状态
+        function updateSystemStatus() {
+            if (!isSystemRunning) return;
+            
+            const now = new Date();
+            const diff = now - systemStartTime;
+            const seconds = Math.floor(diff / 1000);
+            
+            // 更新运行时间
+            uptimeEl.textContent = `运行时间: ${formatUptime(seconds)}`;
+            
+            // 随机模拟系统状态波动（增加真实感）
+            if (Math.random() < 0.01) {
+                // 1%的概率显示短暂连接波动
+                connectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-warning pulse-animation mr-2';
+                connectionStatusText.textContent = '连接波动';
+                
+                setTimeout(() => {
+                    if (isSystemRunning && !isTestReleaseActive) { // 测试期间不恢复
+                        connectionStatusIndicator.className = 'inline-block w-2 h-2 rounded-full bg-success pulse-animation mr-2';
+                        connectionStatusText.textContent = '连接稳定';
+                    }
+                }, 3000);
+            }
+        }
+        
+        // 添加系统日志，增加一个参数控制是否为调试日志
+        function addSystemLog(message, type = 'info', isDebug = false) {
+            // 过滤调试日志，不在界面显示
+            if (isDebug) {
+                console.log(`[DEBUG] ${message}`);
+                return;
+            }
+            
+            // 过滤掉包含"变速放票"的日志
+            if (message.includes("变速放票")) {
+                return;
+            }
+            
+            const now = new Date();
+            const timeStr = formatDateTime(now);
+            let icon = '';
+            
+            switch(type) {
+                case 'info':
+                    icon = '<i class="fa fa-info-circle text-primary mr-1"></i>';
+                    break;
+                case 'success':
+                    icon = '<i class="fa fa-check-circle text-success mr-1"></i>';
+                    break;
+                case 'warning':
+                    icon = '<i class="fa fa-exclamation-triangle text-warning mr-1"></i>';
+                    break;
+                case 'error':
+                    icon = '<i class="fa fa-times-circle text-danger mr-1"></i>';
+                    break;
+            }
+            
+            const logEntry = document.createElement('p');
+            logEntry.className = `mb-1 ${type === 'error' ? 'text-danger' : ''} slide-in`;
+            logEntry.innerHTML = `[${timeStr}] ${icon} ${message}`;
+            
+            systemLogEl.prepend(logEntry);
+            
+            // 限制日志数量
+            if (systemLogEl.children.length > 50) {
+                systemLogEl.removeChild(systemLogEl.lastChild);
+            }
+        }
+        
+        // 模拟从外部监测到的余票数据和预约情况
+        function simulateExternalTicketData() {
+            if (!isSystemRunning) return;
+            
+            // 更新监测次数
+            detectionCount++;
+            detectionCountEl.textContent = detectionCount;
+            
+            // 这里应该是从被监测的网页中提取的余票数据
+            // 实际应用中，这部分应该通过后端程序获取并推送
+            
+            // 首次加载时，设置为初始值
+            if (isFirstLoad) {
+                isFirstLoad = false;
+                currentTickets = 14000;  // 余票从14000开始
+                ticketsBooked = 0;       // 已约从0开始
+                updateTicketCount(currentTickets);
+                updateTicketsBooked();
+                addSystemLog("开始监测余票，当前余票为14000", "info");
+                return;
+            }
+            
+            // 测试模式下不模拟正常预约行为
+            if (isTestReleaseActive) return;
+            
+            // 随机模拟预约行为（减少余票，增加已约）
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            
+            // 非放票时段模拟预约行为
+            if (!isMainReleaseActive && !((hours === 17 && minutes === 15) || (hours === 17 && minutes === 30))) {
+                // 有5%的概率有人预约
+                if (Math.random() < 0.05 && currentTickets > 0) {
+                    const ticketsToBook = 1 + Math.floor(Math.random() * 3); // 1-3张
+                    const actualBooked = Math.min(ticketsToBook, currentTickets);
+                    
+                    currentTickets -= actualBooked;
+                    ticketsBooked += actualBooked;
+                    
+                    updateTicketCount(currentTickets);
+                    updateTicketsBooked();
+                    addSystemLog(`检测到${actualBooked}张票被预约`, "info");
+                    
+                    // 添加到历史记录
+                    addHistoryItem(now, actualBooked, "预约", "预约");
+                }
+            }
+        }
+        
+        // 高精度倒计时
+        function updateCountdownWithHighPrecision() {
+            if (isSystemRunning) {
+                updateCountdown();
+                requestAnimationFrame(updateCountdownWithHighPrecision);
+            }
+        }
+        
+        // 图表控制按钮事件
+        chartAutoScrollBtn.addEventListener('click', () => {
+            chartAutoScroll = !chartAutoScroll;
+            if (chartAutoScroll) {
+                chartAutoScrollBtn.classList.add('bg-primary/10', 'text-primary');
+                chartAutoScrollBtn.classList.remove('bg-slate-100', 'text-slate-700');
+                
+                // 调整图表视图以显示最新数据
+                ticketChart.options.scales.x.min = timeLabels.length > 10 ? timeLabels[timeLabels.length - 10] : undefined;
+                ticketChart.options.scales.x.max = undefined;
+                ticketChart.update();
+                
+                addSystemLog("图表已启用自动滚动", "info");
+            } else {
+                chartAutoScrollBtn.classList.remove('bg-primary/10', 'text-primary');
+                chartAutoScrollBtn.classList.add('bg-slate-100', 'text-slate-700');
+                
+                // 重置图表视图限制
+                ticketChart.options.scales.x.min = undefined;
+                ticketChart.options.scales.x.max = undefined;
+                ticketChart.update();
+                
+                addSystemLog("图表已禁用自动滚动", "info");
+            }
+        });
+        
+        chartZoomInBtn.addEventListener('click', () => {
+            if (chartZoomLevel > 1) {
+                chartZoomLevel -= 0.5;
+                const maxDataPoints = 30 * chartZoomLevel;
+                
+                // 调整数据点数量
+                while (timeLabels.length > maxDataPoints) {
+                    timeLabels.shift();
+                    ticketHistory.shift();
+                    bookedHistory.shift();
+                }
+                
+                ticketChart.data.labels = timeLabels;
+                ticketChart.data.datasets[0].data = ticketHistory;
+                ticketChart.data.datasets[1].data = bookedHistory;
+                ticketChart.update();
+                
+                addSystemLog(`图表已放大 (缩放级别: ${chartZoomLevel})`, "info");
+            }
+        });
+        
+        chartZoomOutBtn.addEventListener('click', () => {
+            if (chartZoomLevel < 4) {
+                chartZoomLevel += 0.5;
+                addSystemLog(`图表已缩小 (缩放级别: ${chartZoomLevel})`, "info");
+                
+                // 不需要立即调整数据点，会在下次更新时自动调整
+            }
+        });
+        
+        // 测试按钮事件
+        testBtn.addEventListener('click', () => {
+            if (isTestReleaseActive) {
+                addSystemLog("测试放票已在进行中", "warning");
+                return;
+            }
+            
+            // 显示测试提示弹窗
+            testModal.classList.remove('hidden');
+            addSystemLog("用户触发测试放票，将在10秒后开始", "info");
+            
+            // 5秒后自动关闭弹窗
+            setTimeout(() => {
+                testModal.classList.add('hidden');
+            }, 5000);
+            
+            // 10秒后开始测试放票
+            setTimeout(() => {
+                startTestRelease();
+            }, 10000);
+        });
+        
+        // 刷新按钮事件 - 重置系统
+        refreshBtn.addEventListener('click', () => {
+            refreshBtn.classList.add('animate-spin');
+            addSystemLog('手动刷新，系统重置中...');
+            
+            // 重置系统
+            initializeSystem();
+            
+            setTimeout(() => {
+                refreshBtn.classList.remove('animate-spin');
+            }, 500);
+        });
+        
+        // 系统控制按钮事件
+        startSystemBtn.addEventListener('click', startSystem);
+        
+        // 初始化页面
+        function init() {
+            // 系统默认关闭状态
+            isSystemRunning = false;
+            addSystemLog('系统初始化完成，开始监控陕西历史博物馆余票信息');
+            
+            // 初始化图表
+            ticketChart.update();
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
